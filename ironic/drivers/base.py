@@ -128,6 +128,7 @@ class DeployInterface(object):
         :param task: a TaskManager instance containing the node to act on.
         :raises: InvalidParameterValue
         :raises: MissingParameterValue
+        :raises: ConfigInvalid
         """
 
     @abc.abstractmethod
