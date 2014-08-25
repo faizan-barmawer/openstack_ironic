@@ -27,6 +27,7 @@ from ironic.common.i18n import _
 from ironic.common import images
 from ironic.common import swift
 from ironic.common import utils
+from ironic.drivers import utils as driver_utils
 from ironic.openstack.common import log as logging
 
 ilo_client = importutils.try_import('proliantutils.ilo.ribcl')
@@ -58,6 +59,7 @@ LOG = logging.getLogger(__name__)
 
 _LE = i18n._LE
 _LI = i18n._LI
+_LW = i18n._LW
 
 REQUIRED_PROPERTIES = {
     'ilo_address': _("IP address or hostname of the iLO. Required."),
@@ -274,6 +276,56 @@ def set_boot_device(node, device):
 
     LOG.debug(_LI("Node %(uuid)s set to boot from %(device)s."),
              {'uuid': node.uuid, 'device': device})
+
+
+def set_boot_mode(node, boot_mode):
+    """Sets the node to boot using boot_mode for the next boot.
+
+    :param node: an ironic node object.
+    :param boot_mode: Next boot mode.
+    :raises: IloOperationError if setting boot mode failed.
+    """
+    ilo_object = get_ilo_object(node)
+
+    try:
+        p_boot_mode = ilo_object.get_pending_boot_mode()
+    except ilo_client.IloCommandNotSupportedError:
+        p_boot_mode = 'LEGACY'
+
+    if p_boot_mode.lower().replace('legacy', 'bios') == boot_mode:
+        LOG.info(_LI("Node %(uuid)s pending boot mode is %(boot_mode)s."),
+                 {'uuid': node.uuid, 'boot_mode': boot_mode})
+        return
+
+    try:
+        ilo_object.set_pending_boot_mode(
+                        boot_mode.replace('bios', 'legacy').upper())
+    except ilo_client.IloError as ilo_exception:
+        operation = _("Setting %s as boot mode") % boot_mode
+        raise exception.IloOperationError(operation=operation,
+                error=ilo_exception)
+
+    LOG.info(_LI("Node %(uuid)s boot mode is set to %(boot_mode)s."),
+             {'uuid': node.uuid, 'boot_mode': boot_mode})
+
+
+def update_boot_mode_capability(task):
+    """Update 'boot_mode' capability value of node's 'capabilities' property.
+
+    :param task: Task object.
+
+    """
+    ilo_object = get_ilo_object(task.node)
+
+    try:
+        p_boot_mode = ilo_object.get_pending_boot_mode()
+    except ilo_client.IloCommandNotSupportedError:
+        p_boot_mode = 'LEGACY'
+
+    driver_utils.rm_node_capability(task, 'boot_mode')
+
+    driver_utils.add_node_capability(task, 'boot_mode',
+                         p_boot_mode.replace('LEGACY', 'bios').lower())
 
 
 def setup_vmedia_for_boot(task, boot_iso, parameters=None):

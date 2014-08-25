@@ -32,6 +32,7 @@ from ironic.drivers.modules import deploy_utils
 from ironic.drivers.modules.ilo import common as ilo_common
 from ironic.drivers.modules.ilo import deploy as ilo_deploy
 from ironic.drivers.modules import iscsi_deploy
+from ironic.drivers import utils as driver_utils
 from ironic.openstack.common import context
 from ironic.openstack.common import importutils
 from ironic.tests import base
@@ -185,11 +186,12 @@ class IloVirtualMediaIscsiDeployTestCase(base.TestCase):
         self.node = obj_utils.create_test_node(self.context,
                 driver='iscsi_ilo', driver_info=INFO_DICT)
 
+    @mock.patch.object(driver_utils, 'validate_boot_mode_capability')
     @mock.patch.object(iscsi_deploy, 'validate_glance_image_properties')
     @mock.patch.object(ilo_deploy, '_parse_deploy_info')
     @mock.patch.object(iscsi_deploy, 'validate')
     def test_validate(self, validate_mock, deploy_info_mock,
-                      validate_prop_mock):
+                      validate_prop_mock, validate_boot_mode_mock):
         d_info = {'a': 'b'}
         deploy_info_mock.return_value = d_info
         with task_manager.acquire(self.context, self.node.uuid,
@@ -199,6 +201,7 @@ class IloVirtualMediaIscsiDeployTestCase(base.TestCase):
             deploy_info_mock.assert_called_once_with(task.node)
             validate_prop_mock.assert_called_once_with(task.context,
                     d_info, ['kernel_id', 'ramdisk_id'])
+            validate_boot_mode_mock.assert_called_once_with(task.node)
 
     @mock.patch.object(ilo_deploy, '_reboot_into')
     @mock.patch.object(ilo_deploy, '_get_single_nic_with_vif_port_id')
