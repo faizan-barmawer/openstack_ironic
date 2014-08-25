@@ -262,6 +262,10 @@
 # value)
 #isolinux_config_template=$pybasedir/common/isolinux_config.template
 
+# Template file for elilo.efi configuration file. (string
+# value)
+#elilo_efi_config_template=$pybasedir/common/elilo_efi_config.template
+
 
 #
 # Options defined in ironic.common.paths
