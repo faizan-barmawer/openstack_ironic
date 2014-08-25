@@ -32,6 +32,7 @@ from ironic.drivers.modules import agent
 from ironic.drivers.modules import deploy_utils
 from ironic.drivers.modules.ilo import common as ilo_common
 from ironic.drivers.modules import iscsi_deploy
+from ironic.drivers import utils as driver_utils
 from ironic.openstack.common import log as logging
 
 LOG = logging.getLogger(__name__)
@@ -240,6 +241,7 @@ class IloVirtualMediaIscsiDeploy(base.DeployInterface):
         d_info = _parse_deploy_info(task.node)
         iscsi_deploy.validate_glance_image_properties(task.context, d_info,
                                                       props)
+        driver_utils.validate_boot_mode_capability(task.node)
 
     @task_manager.require_exclusive_lock
     def deploy(self, task):
@@ -291,7 +293,11 @@ class IloVirtualMediaIscsiDeploy(base.DeployInterface):
 
         :param task: a TaskManager instance containing the node to act on.
         """
-        pass
+        boot_mode = driver_utils.get_node_capability(task.node, 'boot_mode')
+        if boot_mode is not None:
+            ilo_common.set_boot_mode(task.node, boot_mode)
+        else:
+            ilo_common.update_boot_mode_capability(task)
 
     def clean_up(self, task):
         """Clean up the deployment environment for the task's node.

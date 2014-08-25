@@ -50,6 +50,9 @@ image_opts = [
     cfg.StrOpt('isolinux_config_template',
                 default=paths.basedir_def('common/isolinux_config.template'),
                 help='Template file for isolinux configuration file.'),
+    cfg.StrOpt('elilo_efi_config_template',
+                default=paths.basedir_def('common/elilo_efi_config.template'),
+                help='Template file for elilo.efi configuration file.'),
 ]
 
 CONF = cfg.CONF
@@ -168,6 +171,33 @@ def _generate_isolinux_cfg(kernel_params):
     return cfg
 
 
+def _generate_elilo_conf(kernel_params):
+    """Generates an elilo configuration file.
+
+    Given a list of strings containing kernel parameters, this method
+    returns the kernel cmdline string.
+    :param kernel_params: a list of strings(each element being a string like
+        'K=V' or 'K' or combination of them like 'K1=V1 K2 K3=V3') to be added
+        as the kernel cmdline.
+    :returns: a string containing the contents of the isolinux configuration
+        file.
+    """
+    if not kernel_params:
+        kernel_params = []
+    kernel_params_str = ' '.join(kernel_params)
+
+    template = CONF.elilo_efi_config_template
+    tmpl_path, tmpl_file = os.path.split(template)
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(tmpl_path))
+    template = env.get_template(tmpl_file)
+
+    options = {'kernel': '/vmlinuz', 'ramdisk': '/initrd',
+               'kernel_params': kernel_params_str}
+
+    cfg = template.render(options)
+    return cfg
+
+
 def create_isolinux_image(output_file, kernel, ramdisk, kernel_params=None):
     """Creates an isolinux image on the specified file.
 
@@ -187,6 +217,12 @@ def create_isolinux_image(output_file, kernel, ramdisk, kernel_params=None):
     """
     ISOLINUX_BIN = 'isolinux/isolinux.bin'
     ISOLINUX_CFG = 'isolinux/isolinux.cfg'
+    EFIBOOT_IMG = 'efiboot.img'
+    TEMP_ELILO_CONF = 'elilo.conf'
+    BOOTx64_EFI = 'EFI/BOOT/BOOTx64.EFI'
+    ELILO_CONF = 'EFI/BOOT/elilo.conf'
+    EFI_KERNEL = 'EFI/BOOT/vmlinuz'
+    EFI_RAMDISK = 'EFI/BOOT/initrd'
 
     with utils.tempdir() as tmpdir:
 
@@ -207,11 +243,38 @@ def create_isolinux_image(output_file, kernel, ramdisk, kernel_params=None):
         isolinux_cfg = os.path.join(tmpdir, ISOLINUX_CFG)
         utils.write_to_file(isolinux_cfg, cfg)
 
+        #Add efiboot.img to this iso image to support UEFI boot.
+        elilo_efi_conf = os.path.join(tmpdir, TEMP_ELILO_CONF)
+        conf = _generate_elilo_conf(kernel_params)
+        utils.write_to_file(elilo_efi_conf, conf)
+        uefi_pxe_bootfile_name = os.path.join(CONF.pxe.tftp_root,
+                                             CONF.pxe.uefi_pxe_bootfile_name)
+
+        efi_files_info = {
+                          kernel: EFI_KERNEL,
+                          ramdisk: EFI_RAMDISK,
+                          uefi_pxe_bootfile_name: BOOTx64_EFI,
+                          elilo_efi_conf: ELILO_CONF
+                         }
+
+        efi_image_files = [kernel, ramdisk, uefi_pxe_bootfile_name,
+                           elilo_efi_conf]
+        efi_image_size = sum([os.path.getsize(f) for f in efi_image_files])
+        #Adding 4k to efi_image_size to compensate loss of faractions
+        #in integer division
+        efi_image_size = efi_image_size / 1024 + 4
+
+        efiboot_img = os.path.join(tmpdir, EFIBOOT_IMG)
+        create_vfat_image(efiboot_img, files_info=efi_files_info,
+                           parameters=None, fs_size_kib=efi_image_size)
+
         try:
             utils.execute('mkisofs', '-r', '-V', "BOOT IMAGE",
                           '-cache-inodes', '-J', '-l', '-no-emul-boot',
                           '-boot-load-size', '4', '-boot-info-table',
-                          '-b', ISOLINUX_BIN, '-o', output_file, tmpdir)
+                          '-b', ISOLINUX_BIN, '-eltorito-alt-boot',
+                          '-e', EFIBOOT_IMG, '-no-emul-boot',
+                          '-o', output_file, tmpdir)
         except processutils.ProcessExecutionError as e:
             LOG.exception(_LE("Creating ISO image failed."))
             raise exception.ImageCreationFailed(image_type='iso', error=e)

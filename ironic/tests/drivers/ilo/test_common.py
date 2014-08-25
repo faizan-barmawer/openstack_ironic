@@ -28,6 +28,7 @@ from ironic.common import utils
 from ironic.conductor import task_manager
 from ironic.db import api as dbapi
 from ironic.drivers.modules.ilo import common as ilo_common
+from ironic.drivers import utils as driver_utils
 from ironic.openstack.common import context
 from ironic.tests import base
 from ironic.tests.conductor import utils as mgr_utils
@@ -264,6 +265,61 @@ class IloCommonMethodsTestCase(base.TestCase):
         get_ilo_object_mock.assert_called_once_with(self.node)
         ilo_object_mock.set_one_time_boot.assert_called_once_with('CDROM')
 
+    @mock.patch.object(ilo_common, 'ilo_client')
+    @mock.patch.object(ilo_common, 'get_ilo_object')
+    def test_set_boot_mode(self, get_ilo_object_mock, ilo_client_mock):
+        ilo_mock_object = ilo_client_mock.IloClient.return_value
+        #set_pending_boot_mode_mock = ilo_mock_object.set_pending_boot_mode
+        get_pending_boot_mode_mock = ilo_mock_object.get_pending_boot_mode
+        get_pending_boot_mode_mock.return_value = 'LEGACY'
+        with task_manager.acquire(self.context, self.node.uuid,
+                                  shared=False) as task:
+            ilo_common.set_boot_mode(task.node, 'bios')
+            get_ilo_object_mock.assert_called_once_with(task.node)
+            get_pending_boot_mode_mock.assertEqual('LEGACY',
+                          get_pending_boot_mode_mock.return_value)
+            #set_pending_boot_mode_mock.assert_called_once_with('LEGACY')
+
+    @mock.patch.object(driver_utils, 'add_node_capability')
+    @mock.patch.object(ilo_common, 'get_ilo_object')
+    @mock.patch.object(ilo_common, 'ilo_client')
+    def test_update_boot_mode_capability(self, ilo_client_mock,
+                                         get_ilo_object_mock,
+                                         add_node_capability_mock):
+        ilo_client_mock.IloCommandNotSupportedError = Exception
+        ilo_mock_obj = mock.MagicMock()
+        get_ilo_object_mock.return_value = ilo_mock_obj
+        ilo_mock_obj.get_pending_boot_mode.return_value = 'bios'
+
+        with task_manager.acquire(self.context, self.node.uuid,
+                                  shared=False) as task:
+            ilo_common.update_boot_mode_capability(task)
+            get_ilo_object_mock.assert_called_once_with(task.node)
+            ilo_mock_obj.get_pending_boot_mode.assert_called_once_with()
+            add_node_capability_mock.assert_called_once_with(task,
+                                                             'boot_mode',
+                                                             'bios')
+
+    @mock.patch.object(driver_utils, 'add_node_capability')
+    @mock.patch.object(ilo_common, 'get_ilo_object')
+    @mock.patch.object(ilo_common, 'ilo_client')
+    def test_update_boot_mode_capability_legacy(self, ilo_client_mock,
+                                                get_ilo_object_mock,
+                                                add_node_capability_mock):
+        ilo_client_mock.IloCommandNotSupportedError = Exception
+        ilo_mock_obj = mock.MagicMock()
+        get_ilo_object_mock.return_value = ilo_mock_obj
+        ilo_mock_obj.get_pending_boot_mode.side_effect = Exception
+
+        with task_manager.acquire(self.context, self.node.uuid,
+                                  shared=False) as task:
+            ilo_common.update_boot_mode_capability(task)
+            get_ilo_object_mock.assert_called_once_with(task.node)
+            ilo_mock_obj.get_pending_boot_mode.assert_called_once_with()
+            add_node_capability_mock.assert_called_once_with(task,
+                                                             'boot_mode',
+                                                             'bios')
+
     @mock.patch.object(images, 'get_temp_url_for_glance_image')
     @mock.patch.object(ilo_common, 'attach_vmedia')
     @mock.patch.object(ilo_common, '_prepare_floppy_image')
@@ -315,9 +371,9 @@ class IloCommonMethodsTestCase(base.TestCase):
         get_name_mock.return_value = 'image-node-uuid'
 
         with task_manager.acquire(self.context, self.node.uuid,
-                                  shared=False) as task:
+                                 shared=False) as task:
             ilo_common.cleanup_vmedia_boot(task)
             swift_obj_mock.delete_object.assert_called_once_with('ilo_cont',
-                    'image-node-uuid')
+                     'image-node-uuid')
             ilo_object_mock.eject_virtual_media.assert_any_call('CDROM')
             ilo_object_mock.eject_virtual_media.assert_any_call('FLOPPY')
