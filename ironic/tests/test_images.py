@@ -16,6 +16,7 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
+import math
 import mock
 import os
 import shutil
@@ -322,14 +323,31 @@ class FsImageTestCase(base.TestCase):
         cfg = images._generate_isolinux_cfg(kernel_params)
         self.assertEqual(expected_cfg, cfg)
 
-    @mock.patch.object(images, '_create_root_fs')
-    @mock.patch.object(utils, 'write_to_file')
+    def test__generate_elilo_conf(self):
+
+        kernel_params = ['key1=value1', 'key2']
+        expected_cfg = ("default=boot\n"
+                        "\n"
+                        "image=/vmlinuz\n"
+                        "label=boot\n"
+                        "initrd=/initrd\n"
+                        "append=\"text key1=value1 key2 --\"")
+        cfg = images._generate_elilo_conf(kernel_params)
+        self.assertEqual(expected_cfg, cfg)
+
+    @mock.patch.object(images, 'create_vfat_image')
+    @mock.patch.object(os.path, 'getsize')
     @mock.patch.object(utils, 'tempdir')
-    @mock.patch.object(utils, 'execute')
+    @mock.patch.object(images, '_generate_elilo_conf')
     @mock.patch.object(images, '_generate_isolinux_cfg')
-    def test_create_isolinux_image(self, gen_cfg_mock, utils_mock,
-                                   tempdir_mock, write_to_file_mock,
-                                   create_root_fs_mock):
+    @mock.patch.object(images, '_generate_conf_file')
+    @mock.patch.object(utils, 'write_to_file')
+    @mock.patch.object(images, '_create_root_fs')
+    @mock.patch.object(utils, 'execute')
+    def test_create_isolinux_image(self, utils_mock, create_root_fs_mock,
+                    write_to_file_mock, gen_conf_mock, gen_cfg_mock,
+                    gen_elilo_mock, tempdir_mock, getsize_mock,
+                    create_vfat_mock):
 
         mock_file_handle = mock.MagicMock(spec=file)
         mock_file_handle.__enter__.return_value = 'tmpdir'
@@ -339,24 +357,47 @@ class FsImageTestCase(base.TestCase):
         cfg_file = 'tmpdir/isolinux/isolinux.cfg'
         gen_cfg_mock.return_value = cfg
 
+        conf = "conf"
+        conf_file = 'tmpdir/elilo.conf'
+        gen_elilo_mock.return_value = conf
         params = ['a=b', 'c']
+        efiboot_img = 'tmpdir/efiboot.img'
 
-        images.create_isolinux_image('tgt_file', 'path/to/kernel',
-                'path/to/ramdisk', kernel_params=params)
-
+        efi_files_info = {
+                'path/to/kernel': 'EFI/BOOT/vmlinuz',
+                'path/to/ramdisk': 'EFI/BOOT/initrd',
+                '/tftpboot/elilo.efi': 'EFI/BOOT/BOOTx64.EFI',
+                'tmpdir/elilo.conf': 'EFI/BOOT/elilo.conf'
+                         }
         files_info = {
                 'path/to/kernel': 'vmlinuz',
                 'path/to/ramdisk': 'initrd',
                 CONF.isolinux_bin: 'isolinux/isolinux.bin'
                 }
-        create_root_fs_mock.assert_called_once_with('tmpdir', files_info)
+
+        getsize_mock.side_effect = [1024, 1024, 1024, 1024]
+
+        efi_image_size = ((1024 * 4) + (float(1024 * 4) * 2 / 100))
+        efi_image_size = math.ceil(efi_image_size / 1024)
+
+        images.create_isolinux_image('tgt_file', 'path/to/kernel',
+                'path/to/ramdisk', kernel_params=params)
+
+        create_root_fs_mock.assert_called_with('tmpdir', files_info)
         gen_cfg_mock.assert_called_once_with(params)
-        write_to_file_mock.assert_called_once_with(cfg_file, cfg)
+        gen_elilo_mock.assert_called_once_with(params)
+        write_to_file_mock.assert_has_calls([mock.call(cfg_file, cfg),
+                                              mock.call(conf_file, conf)])
+
+        create_vfat_mock.assert_called_once_with(efiboot_img,
+                        files_info=efi_files_info, parameters=None,
+                        fs_size_kib=efi_image_size)
 
         utils_mock.assert_called_once_with('mkisofs', '-r', '-V',
                  "BOOT IMAGE", '-cache-inodes', '-J', '-l',
                  '-no-emul-boot', '-boot-load-size',
                  '4', '-boot-info-table', '-b', 'isolinux/isolinux.bin',
+                 '-eltorito-alt-boot', '-e', 'efiboot.img', '-no-emul-boot',
                  '-o', 'tgt_file', 'tmpdir')
 
     @mock.patch.object(images, '_create_root_fs')
@@ -373,6 +414,7 @@ class FsImageTestCase(base.TestCase):
                           'path/to/ramdisk')
 
     @mock.patch.object(images, '_create_root_fs')
+    @mock.patch.object(os.path, 'getsize')
     @mock.patch.object(utils, 'write_to_file')
     @mock.patch.object(utils, 'tempdir')
     @mock.patch.object(utils, 'execute')
@@ -381,12 +423,14 @@ class FsImageTestCase(base.TestCase):
                                                  utils_mock,
                                                  tempdir_mock,
                                                  write_to_file_mock,
+                                                 getsize_mock,
                                                  create_root_fs_mock):
 
         mock_file_handle = mock.MagicMock(spec=file)
         mock_file_handle.__enter__.return_value = 'tmpdir'
         tempdir_mock.return_value = mock_file_handle
         utils_mock.side_effect = processutils.ProcessExecutionError
+        getsize_mock.side_effect = [1024, 1024, 1024, 1024]
 
         self.assertRaises(exception.ImageCreationFailed,
                           images.create_isolinux_image,

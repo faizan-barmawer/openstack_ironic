@@ -472,3 +472,8 @@ class SwiftOperationError(IronicException):
 
 class SNMPFailure(IronicException):
     message = _("SNMP operation '%(operation)s' failed: %(error)s")
+
+
+class OptionNotSupported(IronicException):
+    message = _("Option %(option) is not supported with current version"
+                "of command %(command)")

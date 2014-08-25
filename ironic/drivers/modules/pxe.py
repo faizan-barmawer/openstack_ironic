@@ -39,8 +39,10 @@ from ironic.drivers import base
 from ironic.drivers.modules import deploy_utils
 from ironic.drivers.modules import image_cache
 from ironic.drivers.modules import iscsi_deploy
+from ironic.drivers import utils as driver_utils
 from ironic.openstack.common import fileutils
 from ironic.openstack.common import log as logging
+from ironic.openstack.common import processutils as processutils
 
 
 pxe_opts = [
@@ -273,8 +275,11 @@ class PXEDeploy(base.DeployInterface):
         :raises: InvalidParameterValue.
         :raises: MissingParameterValue
         """
+
+        #Check if mkisofs supports -e option or not.
+        self._check_is_option_supported()
         # Check the boot_mode capability parameter value.
-        pxe_utils.validate_boot_mode_capability(task.node)
+        driver_utils.validate_boot_mode_capability(task.node)
 
         if CONF.pxe.ipxe_enabled:
             if not CONF.pxe.http_url or not CONF.pxe.http_root:
@@ -282,7 +287,8 @@ class PXEDeploy(base.DeployInterface):
                     "iPXE boot is enabled but no HTTP URL or HTTP "
                     "root was specified."))
             # iPXE and UEFI should not be configured together.
-            if pxe_utils.get_node_capability(task.node, 'boot_mode') == 'uefi':
+            if driver_utils.get_node_capability(task.node,
+                                                'boot_mode') == 'uefi':
                 LOG.error(_LE("UEFI boot mode is not supported with "
                               "iPXE boot enabled."))
                 raise exception.InvalidParameterValue(_(
@@ -297,6 +303,25 @@ class PXEDeploy(base.DeployInterface):
         props = ['kernel_id', 'ramdisk_id']
         iscsi_deploy.validate_glance_image_properties(task.context, d_info,
                                                       props)
+
+    def _check_is_option_supported(self):
+        """This method tests if mkisofs supports -e option or not.
+        This is to make sure the image creation doesn't fail when
+        mkisofs is called with -e option to create UEFI boot capable
+        image.
+
+        """
+        output, err = processutils.execute('mkisofs', '--help')
+        is_supported = False
+        if '-e' or 'EFI' in err:
+                    is_supported = True
+        else:
+            LOG.error(_LE("mkisofs does not support -e option"))
+            raise exception.OptionNotSupported(_(
+                "Option -e is not supported with current version of"
+                "command mkisofs"))
+
+        return is_supported
 
     @task_manager.require_exclusive_lock
     def deploy(self, task):
@@ -330,7 +355,8 @@ class PXEDeploy(base.DeployInterface):
         try:
             manager_utils.node_set_boot_device(task, 'pxe', persistent=True)
         except exception.IPMIFailure:
-            if pxe_utils.get_node_capability(task.node, 'boot_mode') == 'uefi':
+            if driver_utils.get_node_capability(task.node,
+                                                'boot_mode') == 'uefi':
                 LOG.warning(_LW("ipmitool is unable to set boot device while "
                                 "the node is in UEFI boot mode."
                                 "Please set the boot device manually."))
@@ -373,7 +399,7 @@ class PXEDeploy(base.DeployInterface):
         pxe_options = _build_pxe_config_options(task.node, pxe_info,
                                                 task.context)
 
-        if pxe_utils.get_node_capability(task.node, 'boot_mode') == 'uefi':
+        if driver_utils.get_node_capability(task.node, 'boot_mode') == 'uefi':
             pxe_config_template = CONF.pxe.uefi_pxe_config_template
         else:
             pxe_config_template = CONF.pxe.pxe_config_template
@@ -461,7 +487,7 @@ class VendorPassthru(base.VendorInterface):
         try:
             pxe_config_path = pxe_utils.get_pxe_config_file_path(node.uuid)
             deploy_utils.switch_pxe_config(pxe_config_path, root_uuid,
-                            pxe_utils.get_node_capability(node, 'boot_mode'))
+                          driver_utils.get_node_capability(node, 'boot_mode'))
 
             deploy_utils.notify_deploy_complete(kwargs['address'])
 
