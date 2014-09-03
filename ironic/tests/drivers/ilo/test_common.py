@@ -266,6 +266,14 @@ class IloCommonMethodsTestCase(base.TestCase):
         ilo_object_mock.set_one_time_boot.assert_called_once_with('CDROM')
 
     @mock.patch.object(ilo_common, 'get_ilo_object')
+    def test_set_persistent_boot_device(self, get_ilo_object_mock):
+        ilo_object_mock = mock.MagicMock()
+        get_ilo_object_mock.return_value = ilo_object_mock
+        ilo_common.set_persistent_boot_device(self.node, 'NETWORK')
+        get_ilo_object_mock.assert_called_once_with(self.node)
+        ilo_object_mock.set_persistent_boot.assert_called_once_with('NETWORK')
+
+    @mock.patch.object(ilo_common, 'get_ilo_object')
     def test_set_boot_mode(self, get_ilo_object_mock):
         ilo_object_mock = mock.MagicMock()
         get_ilo_object_mock.return_value = ilo_object_mock

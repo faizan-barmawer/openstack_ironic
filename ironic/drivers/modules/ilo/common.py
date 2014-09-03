@@ -274,7 +274,28 @@ def set_boot_device(node, device):
         raise exception.IloOperationError(operation=operation,
                                           error=ilo_exception)
 
-    LOG.debug(_LI("Node %(uuid)s set to boot from %(device)s."),
+    LOG.debug("Node %(uuid)s set to boot from %(device)s.",
+             {'uuid': node.uuid, 'device': device})
+
+
+# TODO(faizan): This needs to be moved to iLO's management interface.
+def set_persistent_boot_device(node, device):
+    """Sets the node to boot from a device for the next boot persistently.
+
+    :param node: an ironic node object.
+    :param device: the device to boot from
+    :raises: IloOperationError if setting boot device failed.
+    """
+    ilo_object = get_ilo_object(node)
+
+    try:
+        ilo_object.set_persistent_boot(device)
+    except ilo_client.IloError as ilo_exception:
+        operation = _("Setting %s as persistent boot device") % device
+        raise exception.IloOperationError(operation=operation,
+                                          error=ilo_exception)
+
+    LOG.debug("Node %(uuid)s set to boot persistently from %(device)s.",
              {'uuid': node.uuid, 'device': device})
 
 
