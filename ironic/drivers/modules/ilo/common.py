@@ -16,10 +16,12 @@
 Common functionalities shared between different iLO modules.
 """
 
+
 from oslo.config import cfg
 from oslo.utils import importutils
 
 from ironic.common import exception
+from ironic.common import i18n
 from ironic.common.i18n import _
 from ironic.openstack.common import log as logging
 
@@ -44,6 +46,10 @@ CONF = cfg.CONF
 CONF.register_opts(opts, group='ilo')
 
 LOG = logging.getLogger(__name__)
+
+_LI = i18n._LI
+_LW = i18n._LW
+_LE = i18n._LE
 
 REQUIRED_PROPERTIES = {
     'ilo_address': _("IP address or hostname of the iLO. Required."),
@@ -156,3 +162,162 @@ def get_ilo_license(node):
         return ESSENTIALS_LICENSE
     else:
         return STANDARD_LICENSE
+
+
+# TODO(rameshg87): This needs to be moved to iLO's management interface.
+def set_persistent_boot_device(node, device):
+    """Sets the node to boot from a device for the next boot persistently.
+
+    :param node: an ironic node object.
+    :param device: the device to boot from
+    :raises: IloOperationError if setting boot device failed.
+    """
+    ilo_object = get_ilo_object(node)
+
+    try:
+        ilo_object.set_persistent_boot(device)
+    except ilo_client.IloError as ilo_exception:
+        operation = _("Setting %s as persistent boot device") % device
+        raise exception.IloOperationError(operation=operation,
+                                          error=ilo_exception)
+
+    LOG.debug(_LI("Node %(uuid)s set to boot persistently from %(device)s."),
+             {'uuid': node.uuid, 'device': device})
+
+
+def set_boot_mode(node, boot_mode):
+    """Sets the node to boot using boot_mode for the next boot.
+
+    The valid values for boot_mode are 'bios' and 'uefi'.
+
+    :param node: an ironic node object.
+    :param boot_mode: Next boot mode.
+    :raises: IloOperationError if setting boot mode failed.
+    """
+    if boot_mode is None:
+        LOG.info(_LI("No boot mode specified."))
+        return
+
+    ilo_object = get_ilo_object(node)
+
+    try:
+        p_boot_mode = ilo_object.get_pending_boot_mode()
+    except ilo_client.IloCommandNotSupportedError:
+        p_boot_mode = 'LEGACY'
+
+    if p_boot_mode.lower().replace('legacy', 'bios') == boot_mode:
+        LOG.info(_LI("Node %(uuid)s pending boot mode is %(boot_mode)s."),
+                 {'uuid': node.uuid, 'boot_mode': boot_mode})
+        return
+
+    try:
+        ilo_object.set_pending_boot_mode(
+                        boot_mode.replace('bios', 'legacy').upper())
+    except ilo_client.IloError as ilo_exception:
+        operation = _("Setting %s as boot mode") % boot_mode
+        raise exception.IloOperationError(operation=operation,
+                error=ilo_exception)
+
+    LOG.info(_LI("Node %(uuid)s boot mode is set to %(boot_mode)s."),
+             {'uuid': node.uuid, 'boot_mode': boot_mode})
+
+
+def validate_boot_mode(node):
+    """Validate the boot_mode capability set in node property.
+
+    :param node: an ironic node object.
+    :raises: InvalidParameterValue, if some information is missing or
+            invalid.
+    """
+    boot_mode = get_node_capability(node, 'boot_mode')
+
+    if boot_mode not in [None, 'bios', 'uefi']:
+        raise exception.InvalidParameterValue(_LE("Invalid boot_mode "
+                          "parameter '%s'.") % boot_mode)
+
+
+def update_boot_mode_capability(task):
+    """Update 'boot_mode' capability value of node's 'capabilities' property.
+
+    :param task: Task object.
+
+    """
+    ilo_object = get_ilo_object(task.node)
+
+    try:
+        p_boot_mode = ilo_object.get_pending_boot_mode()
+    except ilo_client.IloCommandNotSupportedError:
+        p_boot_mode = 'LEGACY'
+
+    set_node_capability(task, 'boot_mode',
+                         p_boot_mode.replace('LEGACY', 'bios').lower())
+
+
+def set_node_capability(task, capability, value):
+    """Set 'capability' to node's 'capabilities' property.
+
+    If value is 'None', then remove the capability from node property
+
+    :param task: Task object.
+    :param capability: Capability key.
+    :param value: Capability value.
+
+    """
+    node = task.node
+    capabilities = node.properties.get('capabilities')
+
+    if capability is None:
+        return None
+
+    if value:
+        new_cap = capability + ':' + value
+    else:
+        new_cap = ''
+
+    old_cap_value = None
+
+    if capabilities:
+        for node_capability in str(capabilities).split(','):
+            parts = node_capability.split(':')
+            if len(parts) == 2 and parts[0] and parts[1]:
+                if parts[0] == capability:
+                    old_cap_value = capability + ':' + parts[1]
+                    break
+            else:
+                LOG.warn(_LW("Ignoring malformed capability '%s'. "
+                    "Format should be 'key:val'.") % node_capability)
+
+        if old_cap_value:
+            capabilities = capabilities.replace(old_cap_value, new_cap)
+        else:
+            if value:
+                capabilities = new_cap + ',' + capabilities
+            else:
+                return None
+    else:
+        capabilities = new_cap
+
+    node.properties['capabilities'] = capabilities
+    node.save(task.context)
+
+
+def get_node_capability(node, capability):
+    """Returns 'capability' value from node's 'capabilities' property
+
+    :param node: Node object.
+    :param capability: Capability key.
+    :return: Capability value.
+             If capability is not present, then return None
+
+    """
+    capabilities = node.properties.get('capabilities')
+    if capabilities is not None:
+        for node_capability in str(capabilities).split(','):
+            parts = node_capability.split(':')
+            if len(parts) == 2 and parts[0] and parts[1]:
+                if parts[0] == capability:
+                    return parts[1]
+            else:
+                LOG.warn(_LW("Ignoring malformed capability '%s'. "
+                    "Format should be 'key:val'.") % node_capability)
+    return None
