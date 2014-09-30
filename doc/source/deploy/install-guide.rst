@@ -365,6 +365,31 @@ node(s) where ``ironic-conductor`` is running.
        contents of ``/tftpboot`` to the configured directory
 .. [2] http://www.syslinux.org/wiki/index.php/Library_modules
 
+PXE UEFI Setup
+--------------
+
+If you want to deploy on a UEFI supported bare metal, perform these additional
+steps to configure PXE UEFI environment.
+
+#. Download and untar the elilo bootloader version 3.16 from  
+   http://sourceforge.net/projects/elilo/::
+
+    Ubuntu:
+        sudo tar zxvf elilo-3.16-all.tar.gz
+      
+
+#. Copy the elilo boot loader image to ``/tftpboot`` directory::
+    
+    Ubuntu:
+        sudo cp ./elilo-3.16-x86_64.efi /tftpboot/elilo.efi
+
+#. Update the ironic node with ``boot_mode`` capability in node's properties
+   field::
+
+    ironic node-update <NODE-ID> add properties/capabilities='boot_mode:uefi'
+
+#. Make sure that bare metal node is configured to boot in UEFI boot mode.
+
 iPXE Setup
 ----------
 
@@ -465,9 +490,9 @@ Note that certain distros, notably Mac OS X and SLES, install ``openipmi``
 instead of ``ipmitool`` by default. THIS DRIVER IS NOT COMPATIBLE WITH
 ``openipmi`` AS IT RELIES ON ERROR HANDLING OPTIONS NOT PROVIDED BY THIS TOOL.
 
-Ironic supports sending IPMI sensor data to Ceilometer with pxe_ipmitool, 
+Ironic supports sending IPMI sensor data to Ceilometer with pxe_ipmitool,
 pxe_ipminative, agent_ipmitool, agent_pyghmi, agent_ilo, iscsi_ilo and pxe_ilo
-drivers. By default, support for sending IPMI sensor data to Ceilometer is 
+drivers. By default, support for sending IPMI sensor data to Ceilometer is
 disabled. If you want to enable it set the following options in the
 ``conductor`` section of ``ironic.conf``:
 
@@ -484,3 +509,37 @@ Else we use default value 'All' for all the sensor types which supported by
 Ceilometer, they are:
 
 * Temperature,Fan,Voltage,Current
+
+
+iLO drivers
+-----------
+
+iLO drivers enable to take advantage of features of iLO management engine
+in HP Proliant servers. More information about iLO drivers is available here
+https://wiki.openstack.org/wiki/Ironic/Drivers/iLODrivers.
+
+Prerequisites
+^^^^^^^^^^^^^
+
+1. Swift Object Storage Service - iLO driver uses Swift to store temporary
+   images as well as boot images. It uses the admin account configured in
+   ``/etc/ironic/ironic.conf`` for Swift credentials.
+
+2. Glance Image Service with Swift configured as its backend - When using
+   iLO driver, the boot images are retrieved from Swift directly by the iLO.
+   For this, Ironic must be configured to use swift-temp-url for accessing
+   Glance images.  Configure [glance] section in ``/etc/ironic/ironic.conf``.
+
+iscsi_ilo driver
+^^^^^^^^^^^^^^^^
+
+``iscsi_ilo`` driver was introduced as an alternative to pxe driver(s)
+(or ipxe).  ``iscsi_ilo`` uses virtual media feature in HP Proliant baremetal
+servers to boot up the baremetal node instead of using PXE.
+
+agent_ilo driver
+^^^^^^^^^^^^^^^^
+
+``agent_ilo`` driver was introduced as an alternative to agent driver(s).
+``agent_ilo`` driver uses virtual media feature in HP Proliant baremetal
+servers to boot up the agent on the baremetal node instead of using PXE.

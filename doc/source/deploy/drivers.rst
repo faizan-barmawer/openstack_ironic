@@ -68,3 +68,72 @@ PDU authentication credentials. When using SNMPv3, the PDU must be
 configured for ``NoAuthentication`` and ``NoEncryption``. The
 security name is used analagously to the SNMP community in early
 SNMP versions.
+
+iLO drivers
+-----------
+
+iLO drivers enable to take advantage of features of iLO management engine
+in HP Proliant servers. More information about iLO drivers is available at
+https://wiki.openstack.org/wiki/Ironic/Drivers/iLODrivers.
+
+Supported servers
+^^^^^^^^^^^^^^^^^
+
+The driver is officially tested on HP Proliant Gen 8 servers and above which
+uses iLO 4.
+
+Software Requirements
+^^^^^^^^^^^^^^^^^^^^^
+
+- The ``proliantutils`` package must be installed which is available in pypi.
+
+Enabling an iLO driver
+^^^^^^^^^^^^^^^^^^^^^^
+
+The following iLO drivers are available:
+
+1. ``iscsi_ilo`` - This driver uses iLO for power operations, iLO virtual
+   media for booting the proliant nodes, and uses iscsi to deploy the images.
+2. ``agent_ilo`` - This driver uses iLO for power operations, iLO virtual
+   media for booting the proliant nodes, and uses ironic-python-agent to deploy
+   the images.
+3. ``pxe_ilo`` - This driver uses iLO for power operations, PXE to deploy
+   the images and iLO for device management.
+
+To enable an iLO driver, add the respective iLO driver (i.e ``iscsi_ilo`` or
+``agent_ilo`` or ``pxe_ilo``) to the list of ``enabled_drivers`` in
+``/etc/ironic/ironic.conf``.
+
+Ironic Node Configuration
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Nodes configured for iLO driver should have the ``driver`` property set to
+``iscsi_ilo`` or ``agent_ilo`` or ``pxe_ilo``.  The following configuration
+values are also required in ``driver_info``:
+
+- ``ilo_address``: IP address or hostname of the iLO.
+- ``ilo_username``: Username for the iLO with administrator privileges.
+- ``ilo_password``: Password for the above iLO user.
+- ``client_port``: (optional) Port to be used for iLO operations if you are
+  using a custom port on the iLO.
+- ``client_timeout``: (optional) Timeout for iLO operations.
+- ``ilo_deploy_iso``: The Glance UUID of the deploy ISO image. More information
+  about creating deploy images are available here at
+  https://wiki.openstack.org/wiki/Ironic/Drivers/iLODrivers.
+- ``ipmi_address``: IP address or hostname of the iLO.
+- ``ipmi_username``: Username for the iLO with administrator privileges.
+- ``ipmi_password``: Password for the above iLO user.
+
+``iscsi_ilo`` and ``pxe_ilo`` drivers support image deployment on UEFI
+enabled baremetal nodes. The following additional setup has to be done to
+perform deploy in UEFI boot mode.
+
+1. Update the ironic node with ``boot_mode`` capability in node's properties
+   field::
+
+    ironic node-update <NODE-ID> add properties/capabilities='boot_mode:uefi'
+
+2. Make sure that bare metal node is configured to boot in UEFI boot mode.
+
+NOTE: The address, username, password for the iLO must be duplicated in both
+'ilo' and 'ipmi' sets of parameters.  This will be fixed in future releases.
